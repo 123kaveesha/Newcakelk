@@ -1,10 +1,34 @@
- import { Link } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import "./Navbar.css";
 import logo from './../../public/images/logo.png';
 import search_icon from './../../public/images/search.png';
 import cart_icon from './../../public/images/cart.png';
 
 function Navbar() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    // Check if user is logged in when component mounts
+    const token = localStorage.getItem("token");
+    const userData = localStorage.getItem("user");
+    
+    if (token && userData) {
+      setIsLoggedIn(true);
+      setUser(JSON.parse(userData));
+    }
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    setIsLoggedIn(false);
+    setUser(null);
+    // Optionally redirect to home page
+    window.location.href = "/";
+  };
+
   return (
     <nav className="navbar">
       <div className="navbar-container">
@@ -18,7 +42,9 @@ function Navbar() {
             <li><Link to="/about" className="nav-link">About</Link></li>
             <li><Link to="/contact" className="nav-link">Contact Us</Link></li>
             <li><Link to="/Products" className="nav-link">Products</Link></li>
-            <li><Link to="/dashboard" className="nav-link">Dashboard</Link></li>
+            {user?.role === 'manufacturer' && (
+              <li><Link to="/dashboard" className="nav-link">Dashboard</Link></li>
+            )}
           </ul>
         </div>
         
@@ -35,7 +61,19 @@ function Navbar() {
             <span className="cart-count">0</span>
           </Link>
           
-          <Link to="/login" className="login-button">Login</Link>
+          {isLoggedIn ? (
+            <div className="user-dropdown">
+              <span className="user-greeting">
+                Hello, {user?.name} ({user?.role})
+              </span>
+              <div className="dropdown-content">
+                <Link to="/profile">Profile</Link>
+                <button onClick={handleLogout}>Logout</button>
+              </div>
+            </div>
+          ) : (
+            <Link to="/login" className="login-button">Login</Link>
+          )}
         </div>
       </div>
     </nav>
