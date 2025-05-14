@@ -1,222 +1,97 @@
-const express = require('express');
+ const express = require('express');
 const router = express.Router();
 const Baker = require('../models/Baker');
+const Product = require('../models/Product');
 const auth = require('../middleware/authMiddleware');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = 'public/images';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
-  }
-});
-
-const upload = multer({ 
-  storage: storage,
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|gif/;
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = filetypes.test(file.mimetype);
-    
-    if (extname && mimetype) {
-      return cb(null, true);
-    } else {
-      cb('Error: Images only!');
-    }
-  }
-});
-
-// Register a new baker
-router.post('/register', async (req, res) => {
-  try {
-    const { name, email, password, experience, location, specialty } = req.body;
-    
-    // Check if baker exists
-    let baker = await Baker.findOne({ email });
-    if (baker) {
-      return res.status(400).json({ msg: 'Baker already exists' });
-    }
-    
-    // Create new baker
-    baker = new Baker({
-      name,
-      email,
-      password,
-      experience: `${experience} years`,
-      location,
-      specialty
-    });
-    
-    // Save baker
-    await baker.save();
-    
-    // Create token
-    const token = await baker.generateAuthToken();
-    
-    res.status(201).json({ baker, token });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
-});
-
-// Login baker
-router.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    // Find baker by email
-    const baker = await Baker.findOne({ email });
-    if (!baker) {
-      return res.status(400).json({ msg: 'Invalid credentials' });
-    }
-    
-    // Check password
-    const isMatch = await baker.comparePassword(password);
-    if (!isMatch) {
-      return res.status(400).json({ msg: 'Invalid credentials' });
-    }
-    
-    // Create token
-    const token = await baker.generateAuthToken();
-    
-    res.json({ baker, token });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
-});
-
- // Get all bakers
+// Get all bakers
 router.get('/', async (req, res) => {
-    try {
-        const bakers = await Baker.find({});
-        res.json(bakers);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ msg: 'Server error' });
-    }
+  try {
+    const bakers = await Baker.find().populate('products');
+    res.json(bakers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Get single baker
+// Create new baker (admin only)
+router.post('/', auth, async (req, res) => {
+  try {
+    // Check if user is admin or manufacturer
+    if (req.user.role !== 'admin' && req.user.role !== 'manufacturer') {
+      return res.status(403).json({ error: 'Unauthorized access' });
+    }
+
+    const baker = new Baker(req.body);
+    await baker.save();
+    res.status(201).json(baker);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Get baker by ID
 router.get('/:id', async (req, res) => {
   try {
-    const baker = await Baker.findById(req.params.id).select('-password');
-    if (!baker) {
-      return res.status(404).json({ msg: 'Baker not found' });
-    }
+    const baker = await Baker.findById(req.params.id).populate('products');
+    if (!baker) return res.status(404).json({ error: 'Baker not found' });
     res.json(baker);
   } catch (err) {
-    console.error(err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(404).json({ msg: 'Baker not found' });
-    }
-    res.status(500).send('Server error');
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Update baker profile (authenticated)
-router.put('/:id', auth, upload.single('photo'), async (req, res) => {
+// Add product to baker
+router.post('/:bakerId/products', auth, async (req, res) => {
   try {
-    const { name, experience, location, specialty } = req.body;
-    let photo = req.baker.photo;
-    
-    if (req.file) {
-      photo = `/images/${req.file.filename}`;
+    const baker = await Baker.findById(req.params.bakerId);
+    if (!baker) return res.status(404).json({ error: 'Baker not found' });
+
+    // Check if the logged in user is the baker or admin
+    if (baker._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized access' });
     }
-    
-    const baker = await Baker.findByIdAndUpdate(
-      req.params.id,
-      { 
-        name,
-        experience: `${experience} years`,
-        location,
-        specialty,
-        photo
-      },
-      { new: true }
-    ).select('-password');
-    
-    if (!baker) {
-      return res.status(404).json({ msg: 'Baker not found' });
-    }
-    
+
+    const product = new Product({
+      ...req.body,
+      baker: baker._id
+    });
+    await product.save();
+
+    baker.products.push(product._id);
+    await baker.save();
+
     res.json(baker);
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
+    res.status(400).json({ error: err.message });
   }
 });
 
-// Add product to baker (authenticated)
-router.post('/:id/products', auth, upload.single('photo'), async (req, res) => {
-  try {
-    const { name, price, description } = req.body;
-    let photo = '/images/default-product.jpg';
-    
-    if (req.file) {
-      photo = `/images/${req.file.filename}`;
-    }
-    
-    const newProduct = {
-      name,
-      price,
-      description,
-      photo
-    };
-    
-    const baker = await Baker.findByIdAndUpdate(
-      req.params.id,
-      { $push: { products: newProduct } },
-      { new: true }
-    ).select('-password');
-    
-    if (!baker) {
-      return res.status(404).json({ msg: 'Baker not found' });
-    }
-    
-    res.json(baker);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
-});
-
-// Remove product from baker (authenticated)
+// Remove product from baker
 router.delete('/:bakerId/products/:productId', auth, async (req, res) => {
   try {
     const baker = await Baker.findById(req.params.bakerId);
-    
-    if (!baker) {
-      return res.status(404).json({ msg: 'Baker not found' });
+    if (!baker) return res.status(404).json({ error: 'Baker not found' });
+
+    // Check if the logged in user is the baker or admin
+    if (baker._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized access' });
     }
-    
-    // Check if product exists
-    const productIndex = baker.products.findIndex(
-      product => product._id.toString() === req.params.productId
+
+    const product = await Product.findById(req.params.productId);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    await product.remove();
+
+    // Remove product reference from baker
+    baker.products = baker.products.filter(
+      prodId => prodId.toString() !== req.params.productId
     );
-    
-    if (productIndex === -1) {
-      return res.status(404).json({ msg: 'Product not found' });
-    }
-    
-    // Remove product
-    baker.products.splice(productIndex, 1);
     await baker.save();
-    
+
     res.json(baker);
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
+    res.status(400).json({ error: err.message });
   }
 });
 
