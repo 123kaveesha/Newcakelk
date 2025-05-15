@@ -1,4 +1,5 @@
- const express = require('express');
+// Updated bakers router with improved authentication handling
+const express = require('express');
 const router = express.Router();
 const Baker = require('../models/Baker');
 const Product = require('../models/Product');
@@ -10,14 +11,14 @@ router.get('/', async (req, res) => {
     const bakers = await Baker.find().populate('products');
     res.json(bakers);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch bakers' });
   }
 });
 
-// Create new baker (admin only)
+// Create new baker (admin or manufacturer only)
 router.post('/', auth, async (req, res) => {
   try {
-    // Check if user is admin or manufacturer
+    // Ensure user is authorized
     if (req.user.role !== 'admin' && req.user.role !== 'manufacturer') {
       return res.status(403).json({ error: 'Unauthorized access' });
     }
@@ -26,7 +27,7 @@ router.post('/', auth, async (req, res) => {
     await baker.save();
     res.status(201).json(baker);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Failed to create baker' });
   }
 });
 
@@ -37,7 +38,7 @@ router.get('/:id', async (req, res) => {
     if (!baker) return res.status(404).json({ error: 'Baker not found' });
     res.json(baker);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch baker' });
   }
 });
 
@@ -47,15 +48,12 @@ router.post('/:bakerId/products', auth, async (req, res) => {
     const baker = await Baker.findById(req.params.bakerId);
     if (!baker) return res.status(404).json({ error: 'Baker not found' });
 
-    // Check if the logged in user is the baker or admin
+    // Only the baker or admin can add products
     if (baker._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Unauthorized access' });
     }
 
-    const product = new Product({
-      ...req.body,
-      baker: baker._id
-    });
+    const product = new Product({ ...req.body, baker: baker._id });
     await product.save();
 
     baker.products.push(product._id);
@@ -63,7 +61,7 @@ router.post('/:bakerId/products', auth, async (req, res) => {
 
     res.json(baker);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Failed to add product' });
   }
 });
 
@@ -73,25 +71,18 @@ router.delete('/:bakerId/products/:productId', auth, async (req, res) => {
     const baker = await Baker.findById(req.params.bakerId);
     if (!baker) return res.status(404).json({ error: 'Baker not found' });
 
-    // Check if the logged in user is the baker or admin
+    // Only the baker or admin can remove products
     if (baker._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Unauthorized access' });
     }
 
-    const product = await Product.findById(req.params.productId);
-    if (!product) return res.status(404).json({ error: 'Product not found' });
-
-    await product.remove();
-
-    // Remove product reference from baker
-    baker.products = baker.products.filter(
-      prodId => prodId.toString() !== req.params.productId
-    );
+    baker.products = baker.products.filter(prodId => prodId.toString() !== req.params.productId);
     await baker.save();
 
+    await Product.findByIdAndDelete(req.params.productId);
     res.json(baker);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Failed to remove product' });
   }
 });
 

@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+ import React, { useState, useRef, useEffect } from 'react';
 import './Bakers.css';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
+
 
 const App = () => {
   const [cart, setCart] = useState([]);
@@ -42,7 +44,7 @@ const App = () => {
 
   const fetchBakers = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/bakers');
+      const response = await axios.get('http://localhost:5000/api/baker');
       setBakers(response.data);
     } catch (error) {
       console.error('Error fetching bakers:', error);
@@ -89,7 +91,7 @@ const App = () => {
         role: 'manufacturer'
       };
 
-      const response = await axios.post('http://localhost:5000/api/bakers', bakerData);
+      const response = await axios.post('http://localhost:5000/api/baker', bakerData);
       
       setBakers([...bakers, response.data]);
       setNewBaker({
@@ -116,7 +118,7 @@ const App = () => {
     
     try {
       const response = await axios.post(
-        `http://localhost:5000/api/bakers/${currentUser._id}/products`,
+        `http://localhost:5000/api/baker/${currentUser._id}/products`,
         newProduct
       );
       
@@ -143,7 +145,7 @@ const App = () => {
     
     try {
       await axios.delete(
-        `http://localhost:5000/api/bakers/${currentUser._id}/products/${productId}`
+        `http://localhost:5000/api/baker/${currentUser._id}/products/${productId}`
       );
       
       const updatedBakers = bakers.map(baker => {
